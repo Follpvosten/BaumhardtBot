@@ -56,10 +56,10 @@ public class ElizaConfig {
      * in POST_PROCESS_BEFORE and replaced with the items with the same index in
      * POST_PROCESS_AFTER.
      */
-    static final String[] POST_PROCESS_BEFORE = {"am", "your", "me",
-	"myself", "yourself", "i", "you", "my", "i'm"};
-    static final String[] POST_PROCESS_AFTER = {"are", "my", "you",
-	"yourself", "myself", "you", "I", "your", "you are"};
+    static final String[] POST_PROCESS_BEFORE = {"bin", "dein", "ich",
+	"du", "Sie", "mein", "ich bin"};
+    static final String[] POST_PROCESS_AFTER = {"bist", "mein", "du",
+	"ich", "ich", "dein", "du bist"};
 
     /**
      * The following RESPONSE_TABLE is a list of response sets. Each response
@@ -73,10 +73,10 @@ public class ElizaConfig {
      * response are replaced with phrases from the user's sentence.
      */
     static final String[][][] RESPONSE_TABLE = {
-	{{"computer"},
-	{"Do computers worry you?", "Why do you mention computers?", "What do you think machines have to do with your problem?", "Don't you think computers can help people?", "What about machines worrys you?", "What do you think about machines?"}},
-	{{"name"},
-	{"I am not interested in names.", "I don't care about names -- please continue."}},
+	{{"baum"},
+	{"Fürchtest duuuu...den Baum?", "Der Baum ist groß, weise und mächtig.", "Hast du ein Problem mit Bäumen? :'(", "Die Bäume sind auf eurer Seite.", "Wieso hast du Angst vor Bäumen?", "Was denkst du über Bäume?"}},
+	{{"wer", "bist", "du"},
+	{"Mein Name ist Baumhardt.", "Ich bin Baumhardt.", "Ich heiße Baumhardt."}},
 	{{"alike"},
 	{"In what way?", "What resemblence do you see?", "What does that similarity suggest to you?", "What other connections do you see?", "What do you suppose that resemblence means?", "What is the connection, do you suppose?", "Could here really be some connection?", "How?"}},
 	{{"you", "remind", "me", "of"},
