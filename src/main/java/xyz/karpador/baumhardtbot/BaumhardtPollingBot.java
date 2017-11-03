@@ -23,7 +23,11 @@
  */
 package xyz.karpador.baumhardtbot;
 
+import java.time.LocalDateTime;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import org.telegram.telegrambots.api.methods.send.SendMessage;
 import org.telegram.telegrambots.api.objects.Update;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
@@ -35,10 +39,16 @@ import org.telegram.telegrambots.exceptions.TelegramApiException;
  */
 public class BaumhardtPollingBot extends TelegramLongPollingBot {
     
-    private final ArrayList<Integer> elizaUsers;
+    private final ArrayList<Integer> elizaUsers = new ArrayList<>();
+    private CountdownList countdownList = null;
+    
+    private final AsyncFileHelper fileHelper;
     
     public BaumhardtPollingBot() {
-	elizaUsers = new ArrayList<>();
+	fileHelper = new AsyncFileHelper("countdowns.json");
+	if(fileHelper.fileExists()) {
+	    fileHelper.startRead();
+	}
     }
 
     @Override
@@ -48,6 +58,12 @@ public class BaumhardtPollingBot extends TelegramLongPollingBot {
 
     @Override
     public void onUpdateReceived(Update update) {
+	if(countdownList == null) {
+	    countdownList = 
+		    fileHelper.fileExists()
+		    ? CountdownList.fromJsonString(fileHelper.getReadData())
+		    : new CountdownList();
+	}
 	if(!update.hasMessage()) return;
 	if(!update.getMessage().hasText()) return;
 	if(elizaUsers.contains(update.getMessage().getFrom().getId())) {
@@ -59,8 +75,8 @@ public class BaumhardtPollingBot extends TelegramLongPollingBot {
 		    .setText("Conversation stopped. Bye! ( ͡° ͜ʖ ͡°)");
 		try {
 		    sendMessage(message);
-		} catch(TelegramApiException e) {
-		    e.printStackTrace();
+		} catch(TelegramApiException ex) {
+		    Logger.getLogger(BaumhardtPollingBot.class.getName()).log(Level.SEVERE, null, ex);
 		}
 	    } else {
 		String result = Eliza.processInput(update.getMessage().getText());
@@ -71,13 +87,14 @@ public class BaumhardtPollingBot extends TelegramLongPollingBot {
 			.setText(result);
 		    try {
 			sendMessage(message);
-		    } catch(TelegramApiException e) {
-			e.printStackTrace();
+		    } catch(TelegramApiException ex) {
+			Logger.getLogger(BaumhardtPollingBot.class.getName()).log(Level.SEVERE, null, ex);
 		    }
 		}
 	    }
 	} else {
-	    if(update.getMessage().getText().startsWith("/start")) {
+	    String messageText = update.getMessage().getText();
+	    if(messageText.startsWith("/start")) {
 		elizaUsers.add(update.getMessage().getFrom().getId());
 		SendMessage message = new SendMessage()
 		    .setChatId(update.getMessage().getChatId())
@@ -85,17 +102,137 @@ public class BaumhardtPollingBot extends TelegramLongPollingBot {
 		    .setText("Conversation started. Hello. ( ͡° ͜ʖ ͡°)");
 		try {
 		    sendMessage(message);
-		} catch(TelegramApiException e) {
-		    e.printStackTrace();
+		} catch(TelegramApiException ex) {
+		    Logger.getLogger(BaumhardtPollingBot.class.getName()).log(Level.SEVERE, null, ex);
 		}
-	    } else if(update.getMessage().getText().contains("@" + getBotUsername())) {
+	    } else if(messageText.contains("@" + getBotUsername())) {
 		SendMessage message = new SendMessage()
 		    .setChatId(update.getMessage().getChatId())
 		    .setText("( ͡° ͜ʖ ͡°)");
 		try {
 		    sendMessage(message);
-		} catch(TelegramApiException e) {
-		    e.printStackTrace();
+		} catch(TelegramApiException ex) {
+		    Logger.getLogger(BaumhardtPollingBot.class.getName()).log(Level.SEVERE, null, ex);
+		}
+	    } else if(messageText.startsWith("/")) {
+		String[] messageComponents = messageText.split(" ");
+		String command = messageComponents[0].replace("/", "");
+		if(command.contains("@")) {
+		    if(!command.split("@")[1].equals(getBotUsername()))
+			return;
+		    command = command.split("@")[0];
+		}
+		String args =
+			messageComponents.length > 1
+			? messageText.substring(messageText.indexOf(" ") + 1)
+			: null;
+		switch (command) {
+		    case "help":
+			{
+			    String answer = "Available commands:\n"
+				    + "/start: Start a conversation\n"
+				    + "/stop: Stop the running conversation\n"
+				    + "/listc: List existing countdown dates with index\n"
+				    + "/putc <date>: Submit a new countdown date and time (Format: dd.MM.yyyy HH:mm)\n"
+				    + "/setc <index>: Set your tracked countdown (using an index from /list)\n"
+				    + "/getc [index]: Get a countdown. If no index is provided, your tracked countdown is returned.";
+			    SendMessage message = new SendMessage()
+				.setChatId(update.getMessage().getChatId())
+				.setReplyToMessageId(update.getMessage().getMessageId())
+				.setText(answer);
+			    try {
+				sendMessage(message);
+			    } catch (TelegramApiException ex) {
+				Logger.getLogger(BaumhardtPollingBot.class.getName()).log(Level.SEVERE, null, ex);
+			    }
+			    break;
+			}
+		    case "listc":
+			{
+			    String answer = countdownList.getListForUser(update.getMessage().getFrom().getId());
+			    SendMessage message = new SendMessage()
+				.setChatId(update.getMessage().getChatId())
+				.setReplyToMessageId(update.getMessage().getMessageId())
+				.setText(answer);
+			    try {
+				sendMessage(message);
+			    } catch (TelegramApiException ex) {
+				Logger.getLogger(BaumhardtPollingBot.class.getName()).log(Level.SEVERE, null, ex);
+			    }
+			    break;
+			}
+		    case "putc":
+			{
+			    String answer;
+			    try {
+				LocalDateTime dateTime = LocalDateTime.from(CountdownList.DATEFORMAT.parse(args));
+				answer = countdownList.addDateTime(dateTime);
+				fileHelper.startWrite(countdownList.toJsonString());
+			    } catch(DateTimeParseException ex) {
+				Logger.getLogger(BaumhardtPollingBot.class.getName()).log(Level.INFO, null, ex);
+				answer = "Please provide a valid date! Format: " + CountdownList.DATEFORMATSTRING;
+			    }
+			    SendMessage message = new SendMessage()
+				.setChatId(update.getMessage().getChatId())
+				.setReplyToMessageId(update.getMessage().getMessageId())
+				.setText(answer);
+			    try {
+				sendMessage(message);
+			    } catch (TelegramApiException ex) {
+				Logger.getLogger(BaumhardtPollingBot.class.getName()).log(Level.SEVERE, null, ex);
+			    }
+			    break;
+			}
+		    case "setc":
+			{
+			    String answer;
+			    try {
+				answer = countdownList.addUserDateTime(
+				    update.getMessage().getFrom().getId(),
+				    Integer.parseInt(messageComponents[1])
+				);
+				fileHelper.startWrite(countdownList.toJsonString());
+			    } catch(NumberFormatException ex) {
+				Logger.getLogger(BaumhardtPollingBot.class.getName()).log(Level.INFO, null, ex);
+				answer = "Bitte eine gültige Zahl angeben!";
+			    }
+			    SendMessage message = new SendMessage()
+				.setChatId(update.getMessage().getChatId())
+				.setReplyToMessageId(update.getMessage().getMessageId())
+				.setText(answer);
+			    try {
+				sendMessage(message);
+			    } catch (TelegramApiException ex) {
+				Logger.getLogger(BaumhardtPollingBot.class.getName()).log(Level.SEVERE, null, ex);
+			    }
+			    break;
+			}
+		    case "getc":
+			{
+			    String answer;
+			    if(messageComponents.length > 1) {
+				try {
+				    answer = countdownList.getCountdown(Integer.parseInt(messageComponents[1]));
+				} catch(NumberFormatException ex) {
+				    Logger.getLogger(BaumhardtPollingBot.class.getName()).log(Level.INFO, null, ex);
+				    answer = "Bitte eine gültige oder keine Zahl angeben!";
+				}
+			    } else {
+				answer = countdownList.getCountdownForUser(update.getMessage().getFrom().getId());
+			    }
+			    SendMessage message = new SendMessage()
+				.setChatId(update.getMessage().getChatId())
+				.setReplyToMessageId(update.getMessage().getMessageId())
+				.setText(answer);
+			    try {
+				sendMessage(message);
+			    } catch (TelegramApiException ex) {
+				Logger.getLogger(BaumhardtPollingBot.class.getName()).log(Level.SEVERE, null, ex);
+			    }
+			    break;
+			}
+		    default:
+			break;
 		}
 	    }
 	}
