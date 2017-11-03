@@ -105,7 +105,7 @@ public class BaumhardtPollingBot extends TelegramLongPollingBot {
 		} catch(TelegramApiException ex) {
 		    Logger.getLogger(BaumhardtPollingBot.class.getName()).log(Level.SEVERE, null, ex);
 		}
-	    } else if(messageText.contains("@" + getBotUsername())) {
+	    } else if(messageText.contains("@" + getBotUsername()) && !messageText.startsWith("/")) {
 		SendMessage message = new SendMessage()
 		    .setChatId(update.getMessage().getChatId())
 		    .setText("( ͡° ͜ʖ ͡°)");
