@@ -28,7 +28,6 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map.Entry;
 import org.json.JSONArray;
@@ -113,6 +112,31 @@ public class CountdownList {
 	    return genCountdownString(userDates.get(userId));
 	} else {
 	    return "Bitte zuerst einen Countdown auswählen.";
+	}
+    }
+    
+    public HashMap<Integer, LocalDateTime> getElapsedEvents(LocalDateTime pointInTime) {
+	HashMap<Integer, LocalDateTime> result = new HashMap<>();
+	for(Entry<Integer, LocalDateTime> entry : userDates.entrySet()) {
+	    // compareTo() < 1: Equal or greater
+	    if(entry.getValue().compareTo(pointInTime) < 1) {
+		result.put(entry.getKey(), entry.getValue());
+	    }
+	}
+	return result;
+    }
+    
+    public void purgeExpiredCountdowns() {
+	LocalDateTime pointInTime = LocalDateTime.now();
+	for(Entry<Integer, LocalDateTime> entry : userDates.entrySet()) {
+	    // compareTo() > -1: Equal or greater
+	    if(entry.getValue().compareTo(pointInTime) < 1) {
+		userDates.remove(entry.getKey());
+	    }
+	}
+	for(LocalDateTime time : dates) {
+	    if(time.compareTo(pointInTime) < 1)
+		dates.remove(time);
 	}
     }
     

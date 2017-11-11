@@ -23,9 +23,20 @@
  */
 package xyz.karpador.baumhardtbot;
 
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Timer;
+import java.util.TimerTask;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.telegram.telegrambots.api.methods.send.SendMessage;
@@ -37,18 +48,77 @@ import org.telegram.telegrambots.exceptions.TelegramApiException;
  *
  * @author Follpvosten
  */
-public class BaumhardtPollingBot extends TelegramLongPollingBot {
+public final class BaumhardtPollingBot extends TelegramLongPollingBot {
     
     private final ArrayList<Integer> elizaUsers = new ArrayList<>();
-    private CountdownList countdownList = null;
+    private final CountdownList countdownList;
     
     private final AsyncFileHelper fileHelper;
+    
+    private class TimeBasedEvents implements Runnable {
+	@Override
+	public void run() {
+	    // Check events per minute
+	    try {
+		HashMap<Integer, LocalDateTime> events =
+			countdownList.getElapsedEvents(LocalDateTime.now());
+		for(Map.Entry<Integer, LocalDateTime> entry : events.entrySet()) {
+		    String answer = "Your tracked countdown expired at "
+			    + CountdownList.DATEFORMAT.format(entry.getValue())
+			    + "!";
+		    SendMessage message = new SendMessage()
+			.setChatId(entry.getKey().longValue())
+			.setText(answer);
+		    try {
+			sendMessage(message);
+		    } catch (TelegramApiException ex) {
+			Logger.getLogger(BaumhardtPollingBot.class.getName()).log(Level.SEVERE, null, ex);
+		    }
+		}
+		if(events.size() > 0) {
+		    synchronized(countdownList) {
+			countdownList.purgeExpiredCountdowns();
+		    }
+		}
+	    } catch(Exception ex) {
+		Logger.getLogger(BaumhardtPollingBot.class.getName()).log(Level.SEVERE, null, ex);
+	    }
+	}
+    }
+    
+    private final ScheduledExecutorService executor;
     
     public BaumhardtPollingBot() {
 	fileHelper = new AsyncFileHelper("countdowns.json");
 	if(fileHelper.fileExists()) {
-	    fileHelper.startRead();
+	    String fileContent = null;
+	    try {
+		File file = new File("countdowns.json");
+		byte[] data;
+		try (FileInputStream fis = new FileInputStream(file)) {
+		    data = new byte[(int) file.length()];
+		    fis.read(data);
+		}
+		fileContent = new String(data, "UTF-8");
+	    } catch (IOException ex) {
+		Logger.getLogger(BaumhardtPollingBot.class.getName()).log(Level.SEVERE, null, ex);
+	    }
+	    if(fileContent != null) {
+		countdownList = CountdownList.fromJsonString(fileContent);
+	    } else {
+		countdownList = new CountdownList();
+	    }
+	} else {
+	    countdownList = new CountdownList();
 	}
+	executor = Executors.newScheduledThreadPool(1);
+	Calendar currentCal = Calendar.getInstance();
+	currentCal.set(Calendar.SECOND, 0);
+	currentCal.set(Calendar.MILLISECOND, 0);
+	currentCal.add(Calendar.MINUTE, 1);
+	long initialDelay = currentCal.getTimeInMillis() - Calendar.getInstance().getTimeInMillis();
+	// Execute time based events every 60 seconds, starting with the next minute
+	executor.scheduleAtFixedRate(new TimeBasedEvents(), initialDelay, 60 * 1000, TimeUnit.MILLISECONDS);
     }
 
     @Override
@@ -58,12 +128,6 @@ public class BaumhardtPollingBot extends TelegramLongPollingBot {
 
     @Override
     public void onUpdateReceived(Update update) {
-	if(countdownList == null) {
-	    countdownList = 
-		    fileHelper.fileExists()
-		    ? CountdownList.fromJsonString(fileHelper.getReadData())
-		    : new CountdownList();
-	}
 	if(!update.hasMessage()) return;
 	if(!update.getMessage().hasText()) return;
 	if(elizaUsers.contains(update.getMessage().getFrom().getId())) {
