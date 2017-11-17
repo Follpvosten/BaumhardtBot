@@ -32,8 +32,6 @@ import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Timer;
-import java.util.TimerTask;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -52,6 +50,7 @@ public final class BaumhardtPollingBot extends TelegramLongPollingBot {
     
     private final ArrayList<Integer> elizaUsers = new ArrayList<>();
     private final CountdownList countdownList;
+    private boolean listInUse = false;
     
     private final AsyncFileHelper fileHelper;
     
@@ -60,27 +59,33 @@ public final class BaumhardtPollingBot extends TelegramLongPollingBot {
 	public void run() {
 	    // Check events per minute
 	    try {
-		HashMap<Integer, LocalDateTime> events =
-			countdownList.getElapsedEvents(LocalDateTime.now());
-		for(Map.Entry<Integer, LocalDateTime> entry : events.entrySet()) {
-		    String answer = "Your tracked countdown expired at "
-			    + CountdownList.DATEFORMAT.format(entry.getValue())
-			    + "!";
-		    SendMessage message = new SendMessage()
-			.setChatId(entry.getKey().longValue())
-			.setText(answer);
-		    try {
-			sendMessage(message);
-		    } catch (TelegramApiException ex) {
-			Logger.getLogger(BaumhardtPollingBot.class.getName()).log(Level.SEVERE, null, ex);
+		synchronized(countdownList) {
+		    if(listInUse) {
+			countdownList.wait();
 		    }
-		}
-		if(events.size() > 0) {
-		    synchronized(countdownList) {
-			countdownList.purgeExpiredCountdowns();
+		    listInUse = true;
+		    HashMap<Integer, LocalDateTime> events =
+			    countdownList.getElapsedEvents(LocalDateTime.now());
+		    for(Map.Entry<Integer, LocalDateTime> entry : events.entrySet()) {
+			String answer = "Your tracked countdown expired at "
+				+ CountdownList.DATEFORMAT.format(entry.getValue())
+				+ "!";
+			SendMessage message = new SendMessage()
+			    .setChatId(entry.getKey().longValue())
+			    .setText(answer);
+			try {
+			    sendMessage(message);
+			} catch (TelegramApiException ex) {
+			    Logger.getLogger(BaumhardtPollingBot.class.getName()).log(Level.SEVERE, null, ex);
+			}
 		    }
+		    countdownList.purgeExpiredCountdowns();
+		    fileHelper.startWrite(countdownList.toJsonString());
+		    listInUse = false;
+		    countdownList.notifyAll();
 		}
 	    } catch(Exception ex) {
+		listInUse = false;
 		Logger.getLogger(BaumhardtPollingBot.class.getName()).log(Level.SEVERE, null, ex);
 	    }
 	}
@@ -190,113 +195,125 @@ public final class BaumhardtPollingBot extends TelegramLongPollingBot {
 			messageComponents.length > 1
 			? messageText.substring(messageText.indexOf(" ") + 1)
 			: null;
-		switch (command) {
-		    case "help":
-			{
-			    String answer = "Available commands:\n"
-				    + "/start: Start a conversation\n"
-				    + "/stop: Stop the running conversation\n"
-				    + "/listc: List existing countdown dates with index\n"
-				    + "/putc <date>: Submit a new countdown date and time (Format: dd.MM.yyyy HH:mm)\n"
-				    + "/setc <index>: Set your tracked countdown (using an index from /list)\n"
-				    + "/getc [index]: Get a countdown. If no index is provided, your tracked countdown is returned.";
-			    SendMessage message = new SendMessage()
-				.setChatId(update.getMessage().getChatId())
-				.setReplyToMessageId(update.getMessage().getMessageId())
-				.setText(answer);
-			    try {
-				sendMessage(message);
-			    } catch (TelegramApiException ex) {
-				Logger.getLogger(BaumhardtPollingBot.class.getName()).log(Level.SEVERE, null, ex);
-			    }
-			    break;
+		synchronized(countdownList) {
+		    while(listInUse) {
+			try {
+			    countdownList.wait();
+			} catch (InterruptedException ex) {
+			    Logger.getLogger(BaumhardtPollingBot.class.getName()).log(Level.SEVERE, null, ex);
 			}
-		    case "listc":
-			{
-			    String answer = countdownList.getListForUser(update.getMessage().getFrom().getId());
-			    SendMessage message = new SendMessage()
-				.setChatId(update.getMessage().getChatId())
-				.setReplyToMessageId(update.getMessage().getMessageId())
-				.setText(answer);
-			    try {
-				sendMessage(message);
-			    } catch (TelegramApiException ex) {
-				Logger.getLogger(BaumhardtPollingBot.class.getName()).log(Level.SEVERE, null, ex);
-			    }
-			    break;
-			}
-		    case "putc":
-			{
-			    String answer;
-			    try {
-				LocalDateTime dateTime = LocalDateTime.from(CountdownList.DATEFORMAT.parse(args));
-				answer = countdownList.addDateTime(dateTime);
-				fileHelper.startWrite(countdownList.toJsonString());
-			    } catch(DateTimeParseException ex) {
-				Logger.getLogger(BaumhardtPollingBot.class.getName()).log(Level.INFO, null, ex);
-				answer = "Please provide a valid date! Format: " + CountdownList.DATEFORMATSTRING;
-			    }
-			    SendMessage message = new SendMessage()
-				.setChatId(update.getMessage().getChatId())
-				.setReplyToMessageId(update.getMessage().getMessageId())
-				.setText(answer);
-			    try {
-				sendMessage(message);
-			    } catch (TelegramApiException ex) {
-				Logger.getLogger(BaumhardtPollingBot.class.getName()).log(Level.SEVERE, null, ex);
-			    }
-			    break;
-			}
-		    case "setc":
-			{
-			    String answer;
-			    try {
-				answer = countdownList.addUserDateTime(
-				    update.getMessage().getFrom().getId(),
-				    Integer.parseInt(messageComponents[1])
-				);
-				fileHelper.startWrite(countdownList.toJsonString());
-			    } catch(NumberFormatException ex) {
-				Logger.getLogger(BaumhardtPollingBot.class.getName()).log(Level.INFO, null, ex);
-				answer = "Bitte eine gültige Zahl angeben!";
-			    }
-			    SendMessage message = new SendMessage()
-				.setChatId(update.getMessage().getChatId())
-				.setReplyToMessageId(update.getMessage().getMessageId())
-				.setText(answer);
-			    try {
-				sendMessage(message);
-			    } catch (TelegramApiException ex) {
-				Logger.getLogger(BaumhardtPollingBot.class.getName()).log(Level.SEVERE, null, ex);
-			    }
-			    break;
-			}
-		    case "getc":
-			{
-			    String answer;
-			    if(messageComponents.length > 1) {
+		    }
+		    listInUse = true;
+		    switch (command) {
+			case "help":
+			    {
+				String answer = "Available commands:\n"
+					+ "/start: Start a conversation\n"
+					+ "/stop: Stop the running conversation\n"
+					+ "/listc: List existing countdown dates with index\n"
+					+ "/putc <date>: Submit a new countdown date and time (Format: dd.MM.yyyy HH:mm)\n"
+					+ "/setc <index>: Set your tracked countdown (using an index from /list)\n"
+					+ "/getc [index]: Get a countdown. If no index is provided, your tracked countdown is returned.";
+				SendMessage message = new SendMessage()
+				    .setChatId(update.getMessage().getChatId())
+				    .setReplyToMessageId(update.getMessage().getMessageId())
+				    .setText(answer);
 				try {
-				    answer = countdownList.getCountdown(Integer.parseInt(messageComponents[1]));
+				    sendMessage(message);
+				} catch (TelegramApiException ex) {
+				    Logger.getLogger(BaumhardtPollingBot.class.getName()).log(Level.SEVERE, null, ex);
+				}
+				break;
+			    }
+			case "listc":
+			    {
+				String answer = countdownList.getListForUser(update.getMessage().getFrom().getId());
+				SendMessage message = new SendMessage()
+				    .setChatId(update.getMessage().getChatId())
+				    .setReplyToMessageId(update.getMessage().getMessageId())
+				    .setText(answer);
+				try {
+				    sendMessage(message);
+				} catch (TelegramApiException ex) {
+				    Logger.getLogger(BaumhardtPollingBot.class.getName()).log(Level.SEVERE, null, ex);
+				}
+				break;
+			    }
+			case "putc":
+			    {
+				String answer;
+				try {
+				    LocalDateTime dateTime = LocalDateTime.from(CountdownList.DATEFORMAT.parse(args));
+				    answer = countdownList.addDateTime(dateTime);
+				    fileHelper.startWrite(countdownList.toJsonString());
+				} catch(DateTimeParseException ex) {
+				    Logger.getLogger(BaumhardtPollingBot.class.getName()).log(Level.INFO, null, ex);
+				    answer = "Please provide a valid date! Format: " + CountdownList.DATEFORMATSTRING;
+				}
+				SendMessage message = new SendMessage()
+				    .setChatId(update.getMessage().getChatId())
+				    .setReplyToMessageId(update.getMessage().getMessageId())
+				    .setText(answer);
+				try {
+				    sendMessage(message);
+				} catch (TelegramApiException ex) {
+				    Logger.getLogger(BaumhardtPollingBot.class.getName()).log(Level.SEVERE, null, ex);
+				}
+				break;
+			    }
+			case "setc":
+			    {
+				String answer;
+				try {
+				    answer = countdownList.addUserDateTime(
+					update.getMessage().getFrom().getId(),
+					Integer.parseInt(messageComponents[1])
+				    );
+				    fileHelper.startWrite(countdownList.toJsonString());
 				} catch(NumberFormatException ex) {
 				    Logger.getLogger(BaumhardtPollingBot.class.getName()).log(Level.INFO, null, ex);
-				    answer = "Bitte eine gültige oder keine Zahl angeben!";
+				    answer = "Bitte eine gültige Zahl angeben!";
 				}
-			    } else {
-				answer = countdownList.getCountdownForUser(update.getMessage().getFrom().getId());
+				SendMessage message = new SendMessage()
+				    .setChatId(update.getMessage().getChatId())
+				    .setReplyToMessageId(update.getMessage().getMessageId())
+				    .setText(answer);
+				try {
+				    sendMessage(message);
+				} catch (TelegramApiException ex) {
+				    Logger.getLogger(BaumhardtPollingBot.class.getName()).log(Level.SEVERE, null, ex);
+				}
+				break;
 			    }
-			    SendMessage message = new SendMessage()
-				.setChatId(update.getMessage().getChatId())
-				.setReplyToMessageId(update.getMessage().getMessageId())
-				.setText(answer);
-			    try {
-				sendMessage(message);
-			    } catch (TelegramApiException ex) {
-				Logger.getLogger(BaumhardtPollingBot.class.getName()).log(Level.SEVERE, null, ex);
+			case "getc":
+			    {
+				String answer;
+				if(messageComponents.length > 1) {
+				    try {
+					answer = countdownList.getCountdown(Integer.parseInt(messageComponents[1]));
+				    } catch(NumberFormatException ex) {
+					Logger.getLogger(BaumhardtPollingBot.class.getName()).log(Level.INFO, null, ex);
+					answer = "Bitte eine gültige oder keine Zahl angeben!";
+				    }
+				} else {
+				    answer = countdownList.getCountdownForUser(update.getMessage().getFrom().getId());
+				}
+				SendMessage message = new SendMessage()
+				    .setChatId(update.getMessage().getChatId())
+				    .setReplyToMessageId(update.getMessage().getMessageId())
+				    .setText(answer);
+				try {
+				    sendMessage(message);
+				} catch (TelegramApiException ex) {
+				    Logger.getLogger(BaumhardtPollingBot.class.getName()).log(Level.SEVERE, null, ex);
+				}
+				break;
 			    }
+			default:
 			    break;
-			}
-		    default:
-			break;
+		    }
+		    listInUse = false;
+		    countdownList.notifyAll();
 		}
 	    }
 	}

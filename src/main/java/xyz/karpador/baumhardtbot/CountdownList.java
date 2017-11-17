@@ -128,13 +128,14 @@ public class CountdownList {
     
     public void purgeExpiredCountdowns() {
 	LocalDateTime pointInTime = LocalDateTime.now();
-	for(Entry<Integer, LocalDateTime> entry : userDates.entrySet()) {
-	    // compareTo() > -1: Equal or greater
+	for(Entry<Integer, LocalDateTime> entry :
+		((HashMap<Integer, LocalDateTime>)userDates.clone()).entrySet()) {
+	    // compareTo() < 1: Equal or greater
 	    if(entry.getValue().compareTo(pointInTime) < 1) {
 		userDates.remove(entry.getKey());
 	    }
 	}
-	for(LocalDateTime time : dates) {
+	for(LocalDateTime time : (new ArrayList<>(dates))) {
 	    if(time.compareTo(pointInTime) < 1)
 		dates.remove(time);
 	}
