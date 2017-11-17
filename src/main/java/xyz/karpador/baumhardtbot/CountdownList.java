@@ -72,7 +72,7 @@ public class CountdownList {
 	if(userDates.containsKey(userId)) {
 	    for(int i = 0; i < dates.size(); i++) {
 		result += String.valueOf(i) + " - " + dates.get(i).format(DATEFORMAT);
-		if(dates.get(i) == userDates.get(userId))
+		if(dates.get(i).equals(userDates.get(userId)))
 		    result += " [x]";
 		if(i < dates.size() - 1)
 		    result += "\n";
