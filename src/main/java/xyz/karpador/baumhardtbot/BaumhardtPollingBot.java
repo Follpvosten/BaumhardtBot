@@ -243,9 +243,13 @@ public final class BaumhardtPollingBot extends TelegramLongPollingBot {
 			    {
 				String answer;
 				try {
-				    LocalDateTime dateTime = LocalDateTime.from(CountdownList.DATEFORMAT.parse(args));
-				    answer = countdownList.addDateTime(dateTime);
-				    fileHelper.startWrite(countdownList.toJsonString());
+				    if(args == null)
+					answer = "Please submit a date!";
+				    else {
+					LocalDateTime dateTime = LocalDateTime.from(CountdownList.DATEFORMAT.parse(args));
+					answer = countdownList.addDateTime(dateTime);
+					fileHelper.startWrite(countdownList.toJsonString());
+				    }
 				} catch(DateTimeParseException ex) {
 				    Logger.getLogger(BaumhardtPollingBot.class.getName()).log(Level.INFO, null, ex);
 				    answer = "Please provide a valid date! Format: " + CountdownList.DATEFORMATSTRING;
@@ -265,11 +269,15 @@ public final class BaumhardtPollingBot extends TelegramLongPollingBot {
 			    {
 				String answer;
 				try {
-				    answer = countdownList.addUserDateTime(
-					update.getMessage().getFrom().getId(),
-					Integer.parseInt(messageComponents[1])
-				    );
-				    fileHelper.startWrite(countdownList.toJsonString());
+				    if(messageComponents.length < 2)
+					answer = "Please submit a number!";
+				    else {
+					answer = countdownList.addUserDateTime(
+					    update.getMessage().getFrom().getId(),
+					    Integer.parseInt(messageComponents[1])
+					);
+					fileHelper.startWrite(countdownList.toJsonString());
+				    }
 				} catch(NumberFormatException ex) {
 				    Logger.getLogger(BaumhardtPollingBot.class.getName()).log(Level.INFO, null, ex);
 				    answer = "Bitte eine gültige Zahl angeben!";
